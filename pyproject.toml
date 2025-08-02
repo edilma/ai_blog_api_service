@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ai_blog_api"
+version = "0.1.0"
+description = "A FastAPI API to orchestrate AI blog generation agents."
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "python-dotenv",
+    "sqlmodel",
+    # Install your library from the specified GitHub repository
+    "AI-Blog-App @ git+https://github.com/edilma/AI_Blog_App.git",
+]
