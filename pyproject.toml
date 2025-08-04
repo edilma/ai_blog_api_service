@@ -13,6 +13,8 @@ dependencies = [
     "sqlmodel",
     "PyMuPDF",
     "python-multipart",
+    "unstructured[pdf]",
+    "jinja2",
     # Install your library from the specified GitHub repository
     "AI-Blog-App @ git+https://github.com/edilma/AI_Blog_App.git",
 ]

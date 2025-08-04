@@ -1,7 +1,9 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.routers import content
+from app.routers import content, parsing
 from app.db.database import create_db_and_tables
+
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -22,8 +24,12 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-# Include the router from our content.py file
+# Router from our content.py file
 app.include_router(content.router, prefix="/api", tags=["Content Generation"])
+
+app.include_router(parsing.router, prefix="/api/tools", tags=["Parsing Tools"])
+
+
 
 @app.get("/", tags=["Root"])
 async def read_root():
