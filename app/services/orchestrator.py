@@ -1,9 +1,15 @@
 import os
 import io
+import re
 import pymupdf  # For PDF generation
 from dotenv import load_dotenv
 from typing import Optional
+from sqlmodel import Session
+import traceback
+
 from ai_blog_app import generate_blog_post_with_review
+from app.db.database import engine
+from app.db.crud import save_blog_post
 
 # Load environment variables (e.g., GEMINI_API_KEY)
 load_dotenv() 
@@ -42,7 +48,23 @@ async def run_generation_workflow(
             model=model,
             context=context
         )
-        print("\n--- Generation complete! ---")
-        print(final_post)
+
+        print("\n--- Generation complete! Saving to the database ---")
+        # Save the final blog post to the database
+        if not final_post:
+            print("--- No blog post content generated. Skipping database save. ---")
+            return
+        
+        with Session(engine) as session:
+            saved_post = save_blog_post(
+                topic=topic, 
+                content=final_post, 
+                session=session
+            )
+            print(f"--- Blog post saved with ID: {saved_post.id} ---")
+        
     except Exception as e:
-        print(f"--- ERROR during generation: {e} ---")
+        print(f"--- AN EXCEPTION OCCURRED ---")
+        # This will print the full, detailed error traceback
+        traceback.print_exc()
+    # ----------------------------------------------------

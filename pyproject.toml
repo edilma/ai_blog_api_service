@@ -12,6 +12,7 @@ dependencies = [
     "python-dotenv",
     "sqlmodel",
     "PyMuPDF",
+    "python-multipart",
     # Install your library from the specified GitHub repository
     "AI-Blog-App @ git+https://github.com/edilma/AI_Blog_App.git",
 ]
