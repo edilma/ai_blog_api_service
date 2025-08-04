@@ -31,7 +31,8 @@ async def run_generation_workflow(
         topic: str, 
         provider: str, 
         model: Optional[str], 
-        context: Optional[str] = None
+        context: Optional[str] = None,
+        max_words: int = 300
     ):
     """
     Runs the core blog generation logic , now with optional context.
@@ -46,7 +47,8 @@ async def run_generation_workflow(
             topic=topic,
             provider=provider,
             model=model,
-            context=context
+            context=context,
+            max_words=max_words
         )
 
         print("\n--- Generation complete! Saving to the database ---")
