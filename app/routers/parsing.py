@@ -1,16 +1,21 @@
+import os
+import sys
+
+tesseract_path = r"C:\Program Files\Tesseract-OCR"
+
+if os.path.exists(tesseract_path) and tesseract_path not in os.environ['PATH']:
+    os.environ['PATH'] = os.environ['PATH'] + os.pathsep + tesseract_path
+
 
 import tempfile
-import os
 from fastapi import Request, APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from unstructured.partition.pdf import partition_pdf
 
-
 templates = Jinja2Templates(directory="templates")
 
 router = APIRouter()
-
 
 @router.get("/parser-tool", response_class=HTMLResponse)
 async def get_parser_tool(request: Request):
