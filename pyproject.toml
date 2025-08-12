@@ -19,6 +19,8 @@ dependencies = [
     "jinja2",
     # Install your library from the specified GitHub repository
     "AI-Blog-App @ git+https://github.com/edilma/AI_Blog_App.git",
+    "qdrant-client>=1.15.1",
+    "sentence-transformers>=5.1.0",
 ]
 
 [tool.setuptools]

@@ -125,5 +125,7 @@ def process_and_embed_document(json_filename: str):
 # --- (The testing block remains the same) ---
 if __name__ == "__main__":
     # Make sure to delete your qdrant_storage folder and restart the container first!
-    test_file = "20250811-110500_el_nino.json" 
+    #test_file = "20250811-110500_el_nino.json" 
+    test_file = "20250812-073410_embed-tables-sample.json"
+
     process_and_embed_document(test_file)
