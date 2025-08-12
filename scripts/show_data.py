@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 # --- Configuration ---
 # CHANGE THIS to the name of the file you want to inspect
 # You can copy the full name from your data/processed folder
-FILENAME_TO_INSPECT = "20250811-100433_Benefits Delta Dental Insurance.json"
+FILENAME_TO_INSPECT = "20250812-073410_embed-tables-sample.json"
 # -------------------
 
 PROCESSED_DATA_DIR = "data/processed"
