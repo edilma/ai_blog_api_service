@@ -9,7 +9,7 @@ from app.db.models import BlogPost
 
 
 # Import our service functions
-from app.services.orchestrator import run_generation_workflow, extract_text_from_pdf
+from app.services.orchestrator import run_generation_workflow
 
 router = APIRouter()
 
@@ -20,28 +20,29 @@ async def create_blog_post(
     provider: Annotated[str, Form()] = "openai",
     model: Annotated[Optional[str], Form()] = None,
     max_words: Annotated[int, Form()] = 300,
-    pdf_file: Annotated[Optional[UploadFile], File()] = None
+    # --- New parameter for source files ---
+    source_files: Annotated[Optional[str], Form()] = None
 ):
     """
-    This endpoint accepts blog post details and an optional PDF file.
-    It starts the generation process in the background.
+    Accepts a blog post topic and an optional, comma-separated list of
+    source files to use for context.
     """
-    context_text = None
-    if pdf_file:
-        # Read the file and extract text if it exists
-        pdf_bytes = await pdf_file.read()
-        context_text = extract_text_from_pdf(pdf_bytes)
+    # Convert the comma-separated string into a list
+    source_filenames_list = None
+    if source_files:
+        source_filenames_list = [filename.strip() for filename in source_files.split(',')]
 
     background_tasks.add_task(
         run_generation_workflow,
         topic=topic,
         provider=provider,
         model=model,
-        context=context_text,
-        max_words=max_words
+        max_words=max_words,
+        source_filenames=source_filenames_list # Pass the list to the workflow
     )
     
-    return {"message": "Blog post generation started in the background. If a PDF was provided, it will be used as context."}
+    return {"message": "Blog post generation with context has started."}
+
 
 # This is a dependency that provides a database session to the endpoint
 def get_session():

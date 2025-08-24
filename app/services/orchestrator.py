@@ -1,72 +1,81 @@
 import os
-import io
-import re
-import pymupdf  # For PDF generation
-from dotenv import load_dotenv
-from typing import Optional
+from typing import Optional, List
 from sqlmodel import Session
-import traceback
+from qdrant_client import models
+
+# Import our clients and models from the indexing service
+from .indexing import qdrant_client, embedding_model
 
 from ai_blog_app import generate_blog_post_with_review
 from app.db.database import engine
 from app.db.crud import save_blog_post
 
-# Load environment variables (e.g., GEMINI_API_KEY)
-load_dotenv() 
-
-def extract_text_from_pdf(pdf_bytes: bytes) -> str:
-    """Extracts text from a PDF provided as bytes."""
-    try:
-        with pymupdf.open(stream=pdf_bytes, filetype="pdf") as pdf_document:
-            full_text = [page.get_text() for page in pdf_document]
-            return "\n".join(full_text)
-    except Exception as e:
-        print(f"--- ERROR extracting PDF text: {e} ---")
-        return ""
-
-
-
+# In app/services/orchestrator.py
 
 async def run_generation_workflow(
-        topic: str, 
-        provider: str, 
-        model: Optional[str], 
-        context: Optional[str] = None,
-        max_words: int = 300
-    ):
+    topic: str,
+    provider: str,
+    model: Optional[str],
+    max_words: int,
+    source_filenames: Optional[List[str]] = None 
+):
     """
-    Runs the core blog generation logic , now with optional context.
+    Retrieves context from Qdrant based on the topic and source files,
+    then generates and saves a blog post.
     """
     print(f"\n--- Starting generation for topic: '{topic}' ---")
-    if context:
-        print("--- Using context from uploaded PDF ---")
+    
+    # --- 1. Create Query Embedding ---
+    query_vector = embedding_model.encode(topic).tolist()
 
+    # --- 2. Build Metadata Filter ---
+    query_filter = None
+    if source_filenames:
+        print(f"--- Filtering context by source files: {source_filenames} ---")
+        query_filter = models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="source_file",
+                    match=models.MatchAny(any=source_filenames),
+                )
+            ]
+        )
+
+    # --- 3. Search Qdrant (Retrieve) ---
+    search_results = qdrant_client.search(
+        collection_name="document_chunks",
+        query_vector=query_vector,
+        query_filter=query_filter,
+        limit=5
+    )
+    
+    # --- 4. Construct Context ---
+    context = "\n\n---\n\n".join([result.payload["text"] for result in search_results])
+    
+    if not context:
+        print("--- WARNING: No relevant context found in the vector database. ---")
 
     try:
+        # --- 5. Generate and Save ---
         final_post = await generate_blog_post_with_review(
             topic=topic,
             provider=provider,
             model=model,
-            context=context,
-            max_words=max_words
+            max_words=max_words,
+            context=context
         )
-
-        print("\n--- Generation complete! Saving to the database ---")
-        # Save the final blog post to the database
+        
         if not final_post:
             print("--- No blog post content generated. Skipping database save. ---")
             return
-        
+
         with Session(engine) as session:
-            saved_post = save_blog_post(
-                topic=topic, 
-                content=final_post, 
-                session=session
-            )
-            print(f"--- Blog post saved with ID: {saved_post.id} ---")
+            save_blog_post(topic=topic, content=final_post, session=session)
         
+        print("--- Blog post generated and saved successfully! ---")
+
     except Exception as e:
-        print(f"--- AN EXCEPTION OCCURRED ---")
-        # This will print the full, detailed error traceback
-        traceback.print_exc()
-    # ----------------------------------------------------
+        print(f"--- ERROR during generation: {repr(e)} ---")
+
+
+        
