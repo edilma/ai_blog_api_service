@@ -1,58 +1,128 @@
-# AI_BLOG-API_Service
-Service to consume the AI_Blog and creation of the rag
+# AI Blog API & RAG Pipeline Service
 
-## Ojo:
+This project is a sophisticated FastAPI application that serves as the backend for a powerful, multi-stage content generation system. It leverages a Retrieval-Augmented Generation (RAG) pipeline to create fact-based blog posts from user-provided documents.
 
-gpt-3.5-turbo has a 16k token limit ( about 12 words) le request.
+The system is designed with a clean, decoupled architecture, separating data ingestion, processing, and content generation into distinct, manageable services.
 
-OpenAI: gpt-4-turbo has a 128,000 token window.
+---
 
-Gemini: gemini-1.5-pro has a 1 million token window.
+## Features
 
-The project works when launched locally with `uvicorn app.main:app --reload`.
+* **Multi-Format Document Ingestion:** Accepts a wide variety of document formats, including PDF, DOCX, PPTX, HTML, and Markdown.
+* **Advanced Document Parsing:** Uses the `unstructured` library with OCR (`Tesseract`) and layout detection (`Poppler`) to intelligently partition complex documents into structured elements like titles, paragraphs, and tables.
+* **Data Serialization:** The parsed output from documents is saved as a clean, reusable JSON format, creating a standardized knowledge base.
+* **Vector Indexing:**
+    * **Smart Chunking:** Implements an advanced "chunk-by-title" strategy to create semantically coherent text chunks.
+    * **Multilingual Embeddings:** Uses a local `SentenceTransformer` model (`paraphrase-multilingual-MiniLM-L12-v2`) to support both English and Spanish content.
+    * **Multi-Representation Indexing:** For complex elements like tables, it generates AI-powered summaries to improve retrieval accuracy.
+* **High-Performance Vector Database:** Uses **Qdrant** with Binary Quantization enabled for efficient, memory-optimized vector storage and fast semantic search.
+* **RAG-Based Content Generation:**
+    * Retrieves the most relevant context from the vector database based on a user's topic.
+    * Uses **metadata filtering** to ensure context is only pulled from specified source documents.
+    * Passes the retrieved context to an external agentic library (`ai_blog_app`) to generate a fact-based, non-hallucinated blog post.
+* **Persistent Storage:** Saves all generated blog posts to a local SQLite database using SQLModel.
+* **Diagnostic Tools:** Includes a web-based "Document Parser Inspector" to visually test and verify the document parsing pipeline.
 
+---
 
-### **Project Status & Next Steps**
+## Architecture Overview
 
-Hello\! Here's where we left off:
+The service is composed of several key components that work together:
 
-#### **What We've Accomplished (The "Ingestion" Phase is Complete)**
+1.  **FastAPI Server (`app/`):** The main application that exposes all API endpoints.
+2.  **Document Parser (`app/routers/parsing.py`):** An endpoint that handles file uploads, uses `unstructured` to parse them, and saves the output as JSON.
+3.  **Indexing Service (`app/services/indexing.py`):** A script that reads the processed JSON files, chunks the content, creates embeddings, and uploads everything to the Qdrant database.
+4.  **Generation Service (`app/services/orchestrator.py`):** The core RAG workflow that retrieves context from Qdrant and calls the external `ai_blog_app` library to generate content.
+5.  **Qdrant Database:** A Docker container running the Qdrant vector database for storing and searching document embeddings.
+6.  **SQLite Database:** A local file-based database for storing the final generated blog posts.
 
-You have successfully built a complete, end-to-end data ingestion and indexing pipeline. This is the hardest part, and it's fully functional.
+---
 
-  * **Document Parsing:** Your API has a powerful tool (`/api/tools/parser-tool`) that can take multiple file types (PDF, DOCX, etc.), parse them using `unstructured`, and correctly extract complex tables into HTML.
-  * **Data Serialization:** The parsed output is saved as a clean, reusable JSON file in the `data/processed` folder.
-  * **Indexing Pipeline:** Your script (`app/services/indexing.py`) can take any of these JSON files and load them into the vector database. This includes:
-      * **Smart Chunking:** Grouping text by titles to create meaningful chunks.
-      * **Multilingual Embeddings:** Using a local model to create vectors for both English and Spanish content.
-      * **Vector Storage:** Storing the chunks, their metadata, and their embeddings in a Qdrant database that is optimized with Binary Quantization.
+## Prerequisites
 
------
+Before you begin, ensure you have the following system-level dependencies installed:
 
-### **What to Do Next (The "Retrieval" Phase)**
+1.  **Python** (>=3.12)
+2.  **Docker Desktop:** To run the Qdrant vector database.
+3.  **Poppler:** Required by `unstructured` for PDF processing.
+4.  **Tesseract:** The OCR engine required for the `hi_res` parsing strategy.
 
-The entire data preparation stage is done. Your next and final step is to **use this indexed data to generate a blog post**.
+---
 
-You will need to modify your main blog generation workflow, which is primarily located in **`app/services/orchestrator.py`**.
+## Installation & Setup
 
-Your task is to change the `run_generation_workflow` function to perform these steps:
+1.  **Clone the repository:**
+    ```bash
+    git clone <your-repository-url>
+    cd ai_blog_api_service
+    ```
 
-1.  **Get the user's `topic`** from the API call.
-2.  **Create an embedding** for that `topic` using the same `SentenceTransformer` model.
-3.  **Search Qdrant** using this new embedding to find the most relevant text chunks from your documents.
-4.  **Combine the text** from the search results into a single `context` string.
-5.  **Pass this `context` string** to your `AI-Blog-App` library to generate the final, fact-based blog post.
+2.  **Create and activate the virtual environment:**
+    This project uses `uv` for package management.
+    ```bash
+    # Create the virtual environment
+    uv venv
 
------
+    # Activate the environment (PowerShell)
+    .\.venv\Scripts\Activate.ps1
+    ```
 
-### **Quick Start Checklist for Next Time**
+3.  **Install dependencies:**
+    This command will read the `pyproject.toml` file, create a `uv.lock` file, and install all necessary packages.
+    ```bash
+    uv sync
+    ```
 
-1.  Start the **Qdrant Docker container** in a terminal:
+4.  **Set up environment variables:**
+    Create a file named `.env` in the project's root directory and add your API keys:
+    ```env
+    OPENAI_API_KEY="sk-..."
+    GEMINI_API_KEY="..."
+    ```
+
+---
+
+## Running the Application
+
+The application requires two separate services to be running in two different terminals.
+
+1.  **Start the Qdrant Database:**
+    Open a terminal in the project root and run the following Docker command. This will start the Qdrant container and create a `qdrant_storage` folder to persist your data.
     ```bash
     docker run -p 6333:6333 -p 6334:6334 -v "$(pwd)/qdrant_storage:/qdrant/storage" qdrant/qdrant
     ```
-2.  In a second terminal, start your **API server**:
+
+2.  **Start the FastAPI Server:**
+    Open a **second terminal**, activate the virtual environment, and run the Uvicorn server.
     ```bash
     uvicorn app.main:app --reload
     ```
-3.  The main file you'll be working in is **`app/services/orchestrator.py`**.
+    The API will be available at `http://127.0.0.1:8000`.
+
+---
+
+## Usage Workflow
+
+The system is designed to be used in a three-step process:
+
+1.  **Parse a Document:**
+    * Navigate to the Document Parser Inspector tool at `http://127.0.0.1:8000/api/tools/parser-tool`.
+    * Upload a document (e.g., `my_document.pdf`).
+    * This will process the file and save a corresponding `TIMESTAMP_my_document.json` file in the `data/processed` directory.
+
+2.  **Index the Document:**
+    * Open the `app/services/indexing.py` file.
+    * Update the `test_file` variable in the `if __name__ == "__main__"` block to the name of the JSON file you just created.
+    * Choose your indexing strategy (`smart_indexing=True` or `False`).
+    * Run the script from a **new terminal**:
+        ```bash
+        uv run app/services/indexing.py
+        ```
+    * This will load the document's content into the Qdrant database.
+
+3.  **Generate a Blog Post:**
+    * Navigate to the API documentation at `http://127.0.0.1:8000/docs`.
+    * Use the `POST /api/generate-blog` endpoint.
+    * Provide a `topic` for your blog post.
+    * In the `source_files` field, provide the name of the JSON file you want to use as context.
+    * Execute the request. The generated blog post will be saved to the `blog.db` database.
