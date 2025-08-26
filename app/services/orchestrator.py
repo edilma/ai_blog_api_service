@@ -1,5 +1,6 @@
 import os
 from typing import Optional, List
+from dotenv import load_dotenv
 from sqlmodel import Session
 from qdrant_client import models
 
@@ -10,7 +11,7 @@ from ai_blog_app import generate_blog_post_with_review
 from app.db.database import engine
 from app.db.crud import save_blog_post
 
-# In app/services/orchestrator.py
+load_dotenv()
 
 async def run_generation_workflow(
     topic: str,

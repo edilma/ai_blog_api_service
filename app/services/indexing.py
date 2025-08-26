@@ -1,10 +1,12 @@
+import asyncio
 import json
 import os
 import uuid
 from qdrant_client import QdrantClient, models
 from sentence_transformers import SentenceTransformer
+from ai_blog_app import generate_blog_post_with_review
 
-# --- (Initialization is the same) ---
+# --- Initialization ---
 qdrant_client = QdrantClient(host="localhost", port=6333)
 embedding_model = SentenceTransformer("paraphrase-multilingual-MiniLM-L12-v2")
 collection_name = "document_chunks"
@@ -27,55 +29,25 @@ except Exception:
     print(f"Collection '{collection_name}' created successfully.")
 
 
-# --- NEW: Enhanced Chunking Function with Metadata ---
-def chunk_by_title(elements: list, filename: str, max_characters: int = 1000) -> list[dict]:
+async def summarize_table_with_llm(table_html: str) -> str:
     """
-    Combines document elements into structured chunks with metadata, using titles as section breaks.
+    Uses a generative LLM to create a natural language summary of an HTML table.
     """
-    chunks = []
-    current_chunk_text = ""
-    current_section = "Introduction" # Default section if no title is found first
+    print("--- Generating summary for table... ---")
+    prompt = (
+        "You are a data analyst. Your task is to provide a concise, natural language summary "
+        "of the following HTML table. Describe the main contents and purpose of the table.\n\n"
+        f"TABLE:\n{table_html}"
+    )
+    summary = await generate_blog_post_with_review(
+        topic=prompt, provider="openai", model="gpt-3.5-turbo", max_words=150
+    )
+    return summary
 
-    for element in elements:
-        element_text = element.get("text", "")
-        element_type = element.get("type")
-
-        if element_type == "Title":
-            # If we have a pending chunk, save it before starting a new one
-            if current_chunk_text.strip():
-                chunks.append({
-                    "text": current_chunk_text.strip(),
-                    "metadata": {"source_file": filename, "section": current_section}
-                })
-            # The new section is the text of the title
-            current_section = element_text
-            current_chunk_text = element_text # The title starts the new chunk
-        else:
-            # If adding the next element would make the chunk too big, save the current one
-            if len(current_chunk_text) + len(element_text) > max_characters:
-                if current_chunk_text.strip():
-                    chunks.append({
-                        "text": current_chunk_text.strip(),
-                        "metadata": {"source_file": filename, "section": current_section}
-                    })
-                current_chunk_text = element_text # Start a new chunk
-            else:
-                current_chunk_text += "\n" + element_text
-
-    # Add the very last chunk
-    if current_chunk_text.strip():
-        chunks.append({
-            "text": current_chunk_text.strip(),
-            "metadata": {"source_file": filename, "section": current_section}
-        })
-        
-    return chunks
-
-
-# --- MODIFIED: Main Indexing Function ---
-def process_and_embed_document(json_filename: str):
+async def process_and_embed_document(json_filename: str, smart_indexing: bool = False):
     """
-    Reads a processed JSON file, filters, chunks with metadata, embeds, and uploads to Qdrant.
+    Reads a processed JSON file, chunks, embeds, and uploads the data to Qdrant.
+    If smart_indexing is True, it will also generate LLM summaries for tables.
     """
     file_path = os.path.join("data/processed", json_filename)
     print(f"\n--- Starting indexing for: {file_path} ---")
@@ -93,39 +65,72 @@ def process_and_embed_document(json_filename: str):
         if el.get("type") not in ["Header", "Footer"] and el.get("text", "").strip()
     ]
 
-    # Use our new, smarter chunking function
-    structured_chunks = chunk_by_title(filtered_elements, filename=json_filename)
+    chunks_with_metadata = []
+    current_section = "Introduction"
 
-    print(f"--- Created {len(structured_chunks)} structured chunks to embed. ---")
+    for element in filtered_elements:
+        element_text = element.get("text", "")
+        element_type = element.get("type")
 
-    if not structured_chunks:
+        # Update the current section if we find a title
+        if element_type == "Title":
+            current_section = element_text
+
+        # Apply smart indexing for tables if the flag is set
+        if element_type == "Table" and smart_indexing:
+            print(f"--- Smart indexing enabled for table in section: {current_section} ---")
+            # 1. Add the raw HTML
+            chunks_with_metadata.append({
+                "text": element_text,
+                "metadata": {"source_file": json_filename, "section": current_section, "type": "table_html"}
+            })
+            # 2. Add the AI-generated summary
+            summary = await summarize_table_with_llm(element_text)
+            chunks_with_metadata.append({
+                "text": summary,
+                "metadata": {"source_file": json_filename, "section": current_section, "type": "table_summary"}
+            })
+        else:
+            # For all other elements, or if smart_indexing is off, just add the text
+            chunks_with_metadata.append({
+                "text": element_text,
+                "metadata": {"source_file": json_filename, "section": current_section, "type": element_type}
+            })
+
+    print(f"--- Created {len(chunks_with_metadata)} chunks to embed. ---")
+
+    if not chunks_with_metadata:
         print("--- No chunks were created. Skipping embedding. ---")
         return
 
-    # Separate the text and metadata for processing
-    texts_to_embed = [chunk["text"] for chunk in structured_chunks]
-    metadata_payloads = [chunk["metadata"] for chunk in structured_chunks]
+ # Prepare the payloads and texts for embedding
+    payloads = []
+    texts_to_embed = []
+    for chunk in chunks_with_metadata:
+        # The text to be embedded
+        texts_to_embed.append(chunk["text"])
+        payload = chunk["metadata"]
+        payload["text"] = chunk["text"]
+        payloads.append(payload)
 
-    # Create embeddings
+
+    # Create embeddings and upload to Qdrant
     vectors = embedding_model.encode(texts_to_embed, show_progress_bar=True)
-
-    # Upload to Qdrant with the rich metadata in the payload
     qdrant_client.upsert(
         collection_name=collection_name,
         points=models.Batch(
             ids=[str(uuid.uuid4()) for _ in texts_to_embed],
             vectors=vectors,
-            payloads=metadata_payloads # <-- Use our new metadata payloads
+            payloads=payloads
         )
     )
+    print(f"--- Successfully uploaded {len(chunks_with_metadata)} chunks to Qdrant. ---")
 
-    print(f"--- Successfully uploaded {len(structured_chunks)} chunks to Qdrant. ---")
 
-
-# --- (The testing block remains the same) ---
+# --- Testing Block ---
 if __name__ == "__main__":
     # Make sure to delete your qdrant_storage folder and restart the container first!
-    #test_file = "20250811-110500_el_nino.json" 
-    test_file = "20250812-073410_embed-tables-sample.json"
-
-    process_and_embed_document(test_file)
+    test_file = "20250825-160321_IZUMDINNER.json"
+    
+    # Set smart_indexing to True to generate summaries, or False for fast mode.
+    asyncio.run(process_and_embed_document(test_file, smart_indexing=True))
