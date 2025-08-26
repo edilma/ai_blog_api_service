@@ -1,8 +1,10 @@
 # AI Blog API & RAG Pipeline Service
 
-This project is a sophisticated FastAPI application that serves as the backend for a powerful, multi-stage content generation system. It leverages a Retrieval-Augmented Generation (RAG) pipeline to create fact-based blog posts from user-provided documents.
+This project is a sophisticated FastAPI application that serves as a flexible backend for a powerful, multi-stage content generation system. It leverages a Retrieval-Augmented Generation (RAG) pipeline to create fact-based blog posts from user-provided narrative and semi-structured documents.
 
-The system is designed with a clean, decoupled architecture, separating data ingestion, processing, and content generation into distinct, manageable services.
+The system is designed to excel at processing content with a clear, logical flow, such as articles, reports, and web pages that are organized with titles and sections. It serves as a robust foundation that can be extended and specialized for more complex, domain-specific tasks (e.g., real estate or financial analysis).
+
+The architecture is clean and decoupled, separating data ingestion, processing, and content generation into distinct, manageable services.
 
 ---
 

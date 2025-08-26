@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
-from app.routers import content, parsing
+from app.routers import content, parsing, workflow
 from app.db.database import create_db_and_tables
 
 
@@ -29,6 +29,7 @@ app.include_router(content.router, prefix="/api", tags=["Content Generation"])
 
 app.include_router(parsing.router, prefix="/api/tools", tags=["Parsing Tools"])
 
+app.include_router(workflow.router, prefix="/api", tags=["Workflow"])
 
 
 @app.get("/", tags=["Root"])

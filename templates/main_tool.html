@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Content Generation Workflow</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .step-card { background-color: white; border-radius: 0.75rem; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1); }
+        .step-header { display: flex; align-items: center; gap: 0.75rem; font-size: 1.25rem; font-weight: 600; color: #111827; }
+        .step-number { background-color: #3b82f6; color: white; border-radius: 9999px; width: 2rem; height: 2rem; display: flex; align-items: center; justify-content: center; font-weight: bold; }
+        .status-message { margin-top: 1rem; padding: 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; }
+        .status-success { background-color: #dcfce7; color: #166534; }
+        .status-info { background-color: #e0f2fe; color: #0369a1; }
+        .status-error { background-color: #fee2e2; color: #991b1b; }
+        .document-item { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; border: 1px solid #e5e7eb; border-radius: 0.5rem; margin-bottom: 0.5rem; }
+        .document-item.selected { border-color: #3b82f6; background-color: #eff6ff; }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <div class="container mx-auto p-4 md:p-8 max-w-3xl">
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-bold text-gray-900">AI Content Generation Workflow</h1>
+            <p class="mt-2 text-lg text-gray-600">A single page to upload, index, and generate content from your documents.</p>
+        </header>
+
+        <div class="space-y-8">
+            <!-- STEP 1: UPLOAD & PARSE -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-number">1</div>
+                    <h2>Upload & Parse Document</h2>
+                </div>
+                <p class="mt-2 text-gray-500">Select a file (PDF, DOCX, etc.). It will be parsed and saved for the next step.</p>
+                <div class="mt-4">
+                    <input type="file" id="file-upload" accept=".pdf,.docx,.pptx,.md,.html" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"/>
+                    <button id="upload-btn" class="mt-4 w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-700 transition">Upload & Parse</button>
+                </div>
+                <div id="upload-status" class="status-message hidden"></div>
+            </div>
+
+            <!-- STEP 2: INDEX DOCUMENT -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-number">2</div>
+                    <h2>Index Document</h2>
+                </div>
+                <p class="mt-2 text-gray-500">Select a parsed document from the list and click "Index" to add it to the vector database.</p>
+                <div id="document-list" class="mt-4 max-h-60 overflow-y-auto pr-2">
+                    <p class="text-gray-400 text-center py-4">Upload a document in Step 1 to see it here.</p>
+                </div>
+                <button id="index-btn" class="mt-4 w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-full hover:bg-blue-700 transition" disabled>Index Selected Document</button>
+                <div id="index-status" class="status-message hidden"></div>
+            </div>
+
+            <!-- STEP 3: GENERATE BLOG POST -->
+            <div class="step-card">
+                <div class="step-header">
+                    <div class="step-number">3</div>
+                    <h2>Generate Blog Post</h2>
+                </div>
+                <p class="mt-2 text-gray-500">Write a topic and select the source file(s) to use as context.</p>
+                <div class="mt-4 space-y-4">
+                    <div>
+                        <label for="topic-input" class="block text-sm font-medium text-gray-700">Topic</label>
+                        <input type="text" id="topic-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="e.g., Why is this a good investment?">
+                    </div>
+                    <div>
+                        <label for="source-files-input" class="block text-sm font-medium text-gray-700">Source File(s)</label>
+                        <input type="text" id="source-files-input" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Selected file will appear here...">
+                    </div>
+                </div>
+                <button id="generate-btn" class="mt-4 w-full bg-green-600 text-white font-bold py-2 px-4 rounded-full hover:bg-green-700 transition">Generate Blog Post</button>
+                <div id="generate-status" class="status-message hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const uploadBtn = document.getElementById('upload-btn');
+        const fileUpload = document.getElementById('file-upload');
+        const uploadStatus = document.getElementById('upload-status');
+        
+        const documentList = document.getElementById('document-list');
+        const indexBtn = document.getElementById('index-btn');
+        const indexStatus = document.getElementById('index-status');
+
+        const topicInput = document.getElementById('topic-input');
+        const sourceFilesInput = document.getElementById('source-files-input');
+        const generateBtn = document.getElementById('generate-btn');
+        const generateStatus = document.getElementById('generate-status');
+
+        let selectedFileForIndexing = null;
+
+        // --- Core Functions ---
+
+        async function fetchDocuments() {
+            try {
+                const response = await fetch('/api/processed-documents');
+                const files = await response.json();
+                renderDocumentList(files);
+            } catch (error) {
+                console.error("Failed to fetch documents:", error);
+            }
+        }
+
+        function renderDocumentList(files) {
+            documentList.innerHTML = '';
+            if (files.length === 0) {
+                documentList.innerHTML = '<p class="text-gray-400 text-center py-4">No processed documents found.</p>';
+                return;
+            }
+            files.forEach(file => {
+                const item = document.createElement('div');
+                item.className = 'document-item cursor-pointer';
+                item.textContent = file;
+                item.dataset.filename = file;
+                item.addEventListener('click', () => selectDocument(file));
+                documentList.appendChild(item);
+            });
+        }
+
+        function selectDocument(filename) {
+            selectedFileForIndexing = filename;
+            sourceFilesInput.value = filename; // Also populate the generation field
+            
+            // Highlight selected item
+            document.querySelectorAll('.document-item').forEach(item => {
+                item.classList.toggle('selected', item.dataset.filename === filename);
+            });
+            indexBtn.disabled = false;
+        }
+        
+        function showStatus(element, message, type = 'info') {
+            element.textContent = message;
+            element.className = `status-message status-${type}`;
+            element.classList.remove('hidden');
+        }
+
+        // --- Event Listeners ---
+
+        uploadBtn.addEventListener('click', async () => {
+            if (fileUpload.files.length === 0) {
+                alert('Please select a file to upload.');
+                return;
+            }
+            showStatus(uploadStatus, 'Uploading and parsing... this may take a moment.');
+            
+            const formData = new FormData();
+            formData.append("file", fileUpload.files[0]);
+
+            try {
+                const response = await fetch('/api/tools/parse-document', { method: 'POST', body: formData });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail);
+                }
+                const elements = await response.json();
+                showStatus(uploadStatus, `Successfully parsed! ${elements.length} elements found.`, 'success');
+                await fetchDocuments(); // Refresh the list
+            } catch (error) {
+                showStatus(uploadStatus, `Error: ${error.message}`, 'error');
+            }
+        });
+
+        indexBtn.addEventListener('click', async () => {
+            if (!selectedFileForIndexing) {
+                alert('Please select a document from the list to index.');
+                return;
+            }
+            showStatus(indexStatus, `Indexing ${selectedFileForIndexing}...`);
+            
+            try {
+                const response = await fetch(`/api/index-document/${selectedFileForIndexing}`, { method: 'POST' });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail);
+                }
+                const result = await response.json();
+                showStatus(indexStatus, result.message, 'success');
+            } catch (error) {
+                showStatus(indexStatus, `Error: ${error.message}`, 'error');
+            }
+        });
+
+        generateBtn.addEventListener('click', async () => {
+            const topic = topicInput.value.trim();
+            const sourceFiles = sourceFilesInput.value.trim();
+
+            if (!topic || !sourceFiles) {
+                alert('Please provide a topic and select at least one source file.');
+                return;
+            }
+            showStatus(generateStatus, 'Generation started in the background. Check your server logs for the result.');
+            
+            const formData = new FormData();
+            formData.append('topic', topic);
+            formData.append('source_files', sourceFiles);
+            // Add other params like max_words if needed
+            formData.append('max_words', '300');
+
+
+            try {
+                const response = await fetch('/api/generate-blog', { method: 'POST', body: formData });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail);
+                }
+                const result = await response.json();
+                showStatus(generateStatus, result.message, 'success');
+            } catch (error) {
+                showStatus(generateStatus, `Error: ${error.message}`, 'error');
+            }
+        });
+
+
+        // --- Initial Load ---
+        document.addEventListener('DOMContentLoaded', fetchDocuments);
+    </script>
+</body>
+</html>
