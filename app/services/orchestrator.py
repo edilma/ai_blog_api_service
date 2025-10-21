@@ -33,6 +33,10 @@ async def run_generation_workflow(
     query_filter = None
     if source_filenames:
         print(f"--- Filtering context by source files: {source_filenames} ---")
+        
+        # Create a more flexible filter that checks multiple fields
+        # This handles cases where filenames might be stored slightly differently
+        # Use a simpler filter approach - direct match on source_file
         query_filter = models.Filter(
             must=[
                 models.FieldCondition(
@@ -43,15 +47,53 @@ async def run_generation_workflow(
         )
 
     # --- 3. Search Qdrant (Retrieve) ---
-    search_results = qdrant_client.search(
-        collection_name="document_chunks",
-        query_vector=query_vector,
-        query_filter=query_filter,
-        limit=5
-    )
+    search_limit = 10  # Increase limit to get more context
     
-    # --- 4. Construct Context ---
-    context = "\n\n---\n\n".join([result.payload["text"] for result in search_results])
+    try:
+        # First try with filter if provided
+        search_results = qdrant_client.search(
+            collection_name="document_chunks",
+            query_vector=query_vector,
+            query_filter=query_filter,
+            limit=search_limit
+        )
+        
+        # If no results with filter, try without filter as fallback
+        if not search_results and query_filter:
+            print("--- No results with filter, trying without filter... ---")
+            search_results = qdrant_client.search(
+                collection_name="document_chunks",
+                query_vector=query_vector,
+                limit=search_limit
+            )
+    except Exception as e:
+        print(f"--- ERROR during vector search: {repr(e)} ---")
+        search_results = []
+    
+    # --- 4. Analyze & Log Results ---
+    if search_results:
+        print(f"--- Retrieved {len(search_results)} relevant chunks ---")
+        for i, result in enumerate(search_results):
+            source = result.payload.get("source_file", "unknown")
+            doc_type = result.payload.get("type", "unknown")
+            score = result.score
+            print(f"  {i+1}. Score: {score:.4f} | Source: {source} | Type: {doc_type}")
+    
+    # --- 5. Construct Context ---
+    context_chunks = []
+    for result in search_results:
+        # Add metadata context to each chunk
+        chunk_text = result.payload.get("text", "")
+        source = result.payload.get("source_file", "Unknown Source")
+        section = result.payload.get("section", "Unknown Section")
+        chunk_type = result.payload.get("type", "Unknown Type")
+        
+        # Format the chunk with metadata
+        formatted_chunk = f"[SOURCE: {source} | SECTION: {section} | TYPE: {chunk_type}]\n{chunk_text}"
+        context_chunks.append(formatted_chunk)
+    
+    # Join all chunks with separators
+    context = "\n\n---\n\n".join(context_chunks)
     
     if not context:
         print("--- WARNING: No relevant context found in the vector database. ---")
