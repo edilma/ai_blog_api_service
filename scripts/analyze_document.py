@@ -41,7 +41,7 @@ def analyze_document(json_filename):
     # Check for empty text
     empty_elements = [el for el in elements if not el.get("text", "").strip()]
     if empty_elements:
-        print(f"\n⚠️ Warning: Found {len(empty_elements)} elements with empty text")
+        print(f"\n⚠️ Warning -ojo: Found {len(empty_elements)} elements with empty text")
     
     # Analyze pages
     pages = Counter([el.get("metadata", {}).get("page_number", "unknown") for el in elements])
