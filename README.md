@@ -1,130 +1,192 @@
 # AI Blog API & RAG Pipeline Service
 
-This project is a sophisticated FastAPI application that serves as a flexible backend for a powerful, multi-stage content generation system. It leverages a Retrieval-Augmented Generation (RAG) pipeline to create fact-based blog posts from user-provided narrative and semi-structured documents.
+A FastAPI backend that generates original, fact-grounded content from source documents — product articles from manufacturer spec sheets, unique listing descriptions from property details.
 
-The system is designed to excel at processing content with a clear, logical flow, such as articles, reports, and web pages that are organized with titles and sections. It serves as a robust foundation that can be extended and specialized for more complex, domain-specific tasks (e.g., real estate or financial analysis).
+Upload PDFs, Word files, or slide decks; the service parses them, indexes them into a vector database, and writes from what those documents actually say rather than from whatever the model happens to know.
 
-The architecture is clean and decoupled, separating data ingestion, processing, and content generation into distinct, manageable services.
+---
+
+## Why I built it
+
+Two industries I worked in have the same content problem, and it isn't a lack of information — it's that everyone has the *same* information.
+
+**E-commerce.** The manufacturer supplies a spec sheet and a paragraph of copy. Every store selling that product publishes that same paragraph. Search engines see duplicate content, nothing distinguishes one storefront from another, and hand-writing original copy across a few thousand SKUs isn't realistic.
+
+**Real estate.** The listing agent writes one description and it syndicates unchanged to every portal. It's often thin, sometimes poor, and it's identical everywhere a buyer might encounter the property.
+
+In both cases the raw material already exists — manufacturer documentation, property details, spec sheets — it just needs to become original writing, per item, at volume.
+
+That's what this service does. It ingests the source documents, retrieves the passages relevant to a given topic, and generates content grounded in them. Facts come from the document, so specifications and details stay accurate; the writing is new every time.
+
+Multilingual support (English and Spanish) was a deliberate choice rather than a technical flourish — both markets matter in South Florida, where I did this work.
+
+---
+
+## Architecture
+
+The service is deliberately decoupled — ingestion, indexing, and generation are separate stages that can be run and debugged independently.
+
+```text
+Document (PDF/DOCX/PPTX/HTML/MD)
+          │
+          ▼
+   Document Parser          unstructured + Tesseract OCR + Poppler
+   app/routers/parsing.py   → structured JSON (titles, paragraphs, tables)
+          │
+          ▼
+   Indexing Service         chunk-by-title → multilingual embeddings
+   app/services/indexing.py → Qdrant (binary quantization)
+          │
+          ▼
+   Generation Service       semantic retrieval + metadata filtering
+   app/services/orchestrator.py
+          │
+          ▼
+   ai-blog-app              multi-agent writing pipeline (my library)
+          │
+          ▼
+   SQLite (blog.db)         generated posts
+```
+
+| Component | Role |
+|---|---|
+| **FastAPI Server** (`app/`) | Exposes all API endpoints |
+| **Document Parser** (`app/routers/parsing.py`) | Handles uploads, parses with `unstructured`, serializes to JSON |
+| **Indexing Service** (`app/services/indexing.py`) | Chunks content, creates embeddings, loads into Qdrant |
+| **Generation Service** (`app/services/orchestrator.py`) | Retrieves context and calls the generation library |
+| **Qdrant** | Vector database, running in Docker |
+| **SQLite + SQLModel** | Persists generated posts |
+
+### Built on my own library
+
+Generation is handled by [**`ai-blog-app`**](https://github.com/edilma/ai-blog-app) — an open-source Python library I wrote and published to [PyPI](https://pypi.org/project/ai-blog-app/). It runs a multi-agent pipeline in which a writer, a critic, and three specialized reviewers (SEO, content marketing, clarity and ethics) refine the draft collaboratively.
+
+Keeping generation in a separate installable package means this service handles retrieval and the library handles writing, and either can be improved without touching the other.
 
 ---
 
 ## Features
 
-* **Multi-Format Document Ingestion:** Accepts a wide variety of document formats, including PDF, DOCX, PPTX, HTML, and Markdown.
-* **Advanced Document Parsing:** Uses the `unstructured` library with OCR (`Tesseract`) and layout detection (`Poppler`) to intelligently partition complex documents into structured elements like titles, paragraphs, and tables.
-* **Data Serialization:** The parsed output from documents is saved as a clean, reusable JSON format, creating a standardized knowledge base.
-* **Vector Indexing:**
-    * **Smart Chunking:** Implements an advanced "chunk-by-title" strategy to create semantically coherent text chunks.
-    * **Multilingual Embeddings:** Uses a local `SentenceTransformer` model (`paraphrase-multilingual-MiniLM-L12-v2`) to support both English and Spanish content.
-    * **Multi-Representation Indexing:** For complex elements like tables, it generates AI-powered summaries to improve retrieval accuracy.
-* **High-Performance Vector Database:** Uses **Qdrant** with Binary Quantization enabled for efficient, memory-optimized vector storage and fast semantic search.
-* **RAG-Based Content Generation:**
-    * Retrieves the most relevant context from the vector database based on a user's topic.
-    * Uses **metadata filtering** to ensure context is only pulled from specified source documents.
-    * Passes the retrieved context to an external agentic library (`ai_blog_app`) to generate a fact-based, non-hallucinated blog post.
-* **Persistent Storage:** Saves all generated blog posts to a local SQLite database using SQLModel.
-* **Diagnostic Tools:** Includes a web-based "Document Parser Inspector" to visually test and verify the document parsing pipeline.
+**Document ingestion**
 
----
+- Accepts PDF, DOCX, PPTX, HTML, and Markdown
+- Parses with `unstructured`, using Tesseract OCR and Poppler layout detection to partition documents into titles, paragraphs, and tables
+- Serializes parsed output to reusable JSON, creating a standardized knowledge base
 
-## Architecture Overview
+**Vector indexing**
 
-The service is composed of several key components that work together:
+- **Chunk-by-title** strategy produces semantically coherent chunks instead of arbitrary fixed-size splits
+- **Multilingual embeddings** via a local `SentenceTransformer` model (`paraphrase-multilingual-MiniLM-L12-v2`), supporting English and Spanish
+- **Multi-representation indexing** generates AI summaries for tables, which retrieve poorly when embedded as raw text
+- **Binary quantization** in Qdrant for memory-efficient storage and fast search
 
-1.  **FastAPI Server (`app/`):** The main application that exposes all API endpoints.
-2.  **Document Parser (`app/routers/parsing.py`):** An endpoint that handles file uploads, uses `unstructured` to parse them, and saves the output as JSON.
-3.  **Indexing Service (`app/services/indexing.py`):** A script that reads the processed JSON files, chunks the content, creates embeddings, and uploads everything to the Qdrant database.
-4.  **Generation Service (`app/services/orchestrator.py`):** The core RAG workflow that retrieves context from Qdrant and calls the external `ai_blog_app` library to generate content.
-5.  **Qdrant Database:** A Docker container running the Qdrant vector database for storing and searching document embeddings.
-6.  **SQLite Database:** A local file-based database for storing the final generated blog posts.
+**Generation**
+
+- Retrieves the most relevant context for a given topic
+- **Metadata filtering** constrains retrieval to specified source documents, so output can be traced to a known set of inputs
+- Passes context to `ai-blog-app` for grounded, non-hallucinated generation
+- Persists results to SQLite via SQLModel
+
+**Tooling**
+
+- A web-based **Document Parser Inspector** for visually verifying what the parser extracted before indexing
 
 ---
 
 ## Prerequisites
 
-Before you begin, ensure you have the following system-level dependencies installed:
-
-1.  **Python** (>=3.12)
-2.  **Docker Desktop:** To run the Qdrant vector database.
-3.  **Poppler:** Required by `unstructured` for PDF processing.
-4.  **Tesseract:** The OCR engine required for the `hi_res` parsing strategy.
+- **Python 3.12+**
+- **Docker Desktop** — runs the Qdrant vector database
+- **Poppler** — required by `unstructured` for PDF processing
+- **Tesseract** — OCR engine for the `hi_res` parsing strategy
 
 ---
 
-## Installation & Setup
+## Installation
 
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repository-url>
-    cd ai_blog_api_service
-    ```
+**1. Clone the repository**
 
-2.  **Create and activate the virtual environment:**
-    This project uses `uv` for package management.
-    ```bash
-    # Create the virtual environment
-    uv venv
+```bash
+git clone https://github.com/edilma/ai_blog_api_service.git
+cd ai_blog_api_service
+```
 
-    # Activate the environment (PowerShell)
-    .\.venv\Scripts\Activate.ps1
-    ```
+**2. Create and activate the virtual environment**
 
-3.  **Install dependencies:**
-    This command will read the `pyproject.toml` file, create a `uv.lock` file, and install all necessary packages.
-    ```bash
-    uv sync
-    ```
+This project uses `uv` for package management.
 
-4.  **Set up environment variables:**
-    Create a file named `.env` in the project's root directory and add your API keys:
-    ```env
-    OPENAI_API_KEY="sk-..."
-    GEMINI_API_KEY="..."
-    ```
+```powershell
+uv venv
+.\.venv\Scripts\Activate.ps1
+```
+
+**3. Install dependencies**
+
+```powershell
+uv sync
+```
+
+**4. Set up environment variables**
+
+Create a `.env` file in the project root:
+
+```env
+OPENAI_API_KEY="your-key-here"
+GEMINI_API_KEY="your-key-here"
+```
 
 ---
 
 ## Running the Application
 
-The application requires two separate services to be running in two different terminals.
+Two services run in two terminals.
 
-1.  **Start the Qdrant Database:**
-    Open a terminal in the project root and run the following Docker command. This will start the Qdrant container and create a `qdrant_storage` folder to persist your data.
-    ```bash
-    docker run -p 6333:6333 -p 6334:6334 -v "$(pwd)/qdrant_storage:/qdrant/storage" qdrant/qdrant
-    ```
+**Terminal 1 — Qdrant**
 
-2.  **Start the FastAPI Server:**
-    Open a **second terminal**, activate the virtual environment, and run the Uvicorn server.
-    ```bash
-    uvicorn app.main:app --reload
-    ```
-    The API will be available at `http://127.0.0.1:8000`.
+```powershell
+docker run -p 6333:6333 -p 6334:6334 -v "${PWD}/qdrant_storage:/qdrant/storage" qdrant/qdrant
+```
+
+**Terminal 2 — FastAPI**
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+The API is available at `http://127.0.0.1:8000`, with interactive docs at `/docs`.
 
 ---
 
-## Usage Workflow
+## Usage
 
-The system is designed to be used in a three-step process:
+**1. Parse a document**
 
-1.  **Parse a Document:**
-    * Navigate to the Document Parser Inspector tool at `http://127.0.0.1:8000/api/tools/parser-tool`.
-    * Upload a document (e.g., `my_document.pdf`).
-    * This will process the file and save a corresponding `TIMESTAMP_my_document.json` file in the `data/processed` directory.
+Open the Document Parser Inspector at `http://127.0.0.1:8000/api/tools/parser-tool` and upload a file. The parsed result is saved as `TIMESTAMP_my_document.json` in `data/processed`, and the tool shows you exactly what was extracted — worth checking before indexing, since parsing is where most quality problems originate.
 
-2.  **Index the Document:**
-    * Open the `app/services/indexing.py` file.
-    * Update the `test_file` variable in the `if __name__ == "__main__"` block to the name of the JSON file you just created.
-    * Choose your indexing strategy (`smart_indexing=True` or `False`).
-    * Run the script from a **new terminal**:
-        ```bash
-        uv run app/services/indexing.py
-        ```
-    * This will load the document's content into the Qdrant database.
+**2. Index the document**
 
-3.  **Generate a Blog Post:**
-    * Navigate to the API documentation at `http://127.0.0.1:8000/docs`.
-    * Use the `POST /api/generate-blog` endpoint.
-    * Provide a `topic` for your blog post.
-    * In the `source_files` field, provide the name of the JSON file you want to use as context.
-    * Execute the request. The generated blog post will be saved to the `blog.db` database.
+Open `app/services/indexing.py`, set the `test_file` variable in the `__main__` block to your JSON filename, choose an indexing strategy (`smart_indexing=True` or `False`), then run:
+
+```powershell
+uv run app/services/indexing.py
+```
+
+**3. Generate an article**
+
+At `http://127.0.0.1:8000/docs`, call `POST /api/generate-blog` with a `topic` and the JSON filename in `source_files`. The generated post is saved to `blog.db`.
+
+---
+
+## Notes and Limitations
+
+- **Indexing is triggered by editing a variable in `indexing.py`** rather than through an API endpoint. It works, but it's the clearest thing to lift into a proper endpoint next.
+- **Parsing quality sets the ceiling on output quality.** Documents with complex multi-column layouts or scanned tables extract less reliably, which is why the Parser Inspector exists.
+- **Chunk-by-title assumes documents have real structure.** Content without clear titles and sections chunks less coherently.
+- **No automated evaluation.** Output quality was assessed by reading it against the source documents.
+- **Single-user, local deployment.** No authentication, rate limiting, or multi-tenancy — this was built as a working prototype, not a hosted service.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
